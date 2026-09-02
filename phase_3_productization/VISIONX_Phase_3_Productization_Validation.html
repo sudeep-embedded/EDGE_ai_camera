@@ -1,0 +1,107 @@
+<!doctype html><html><head><meta charset="utf-8"><title>VISIONX Phase 3</title>
+<style>
+body{font-family:Arial,Helvetica,sans-serif;background:#f5f7fa;color:#18212b;margin:0;line-height:1.55}
+.wrap{max-width:1150px;margin:auto;padding:30px}
+header{background:#18212b;color:#fff;padding:30px;border-radius:14px;margin-bottom:22px}
+h1{margin:0 0 8px} h2{margin-top:0;color:#18212b} h3{color:#30465c}
+section{background:#fff;padding:24px;margin:18px 0;border-radius:12px;box-shadow:0 2px 10px rgba(0,0,0,.06)}
+table{width:100%;border-collapse:collapse;margin:12px 0 18px}
+th,td{border:1px solid #d8dee6;padding:9px;vertical-align:top;text-align:left}
+th{background:#edf1f5}
+code{background:#eef2f5;padding:2px 5px;border-radius:4px}
+.badge{display:inline-block;background:#e8edf3;padding:5px 9px;border-radius:20px;font-size:12px;font-weight:bold}
+.gate{border-left:4px solid #4a6cf7;background:#f0f4ff;padding:14px;margin-top:15px}
+.doc{border-left:4px solid #5b6773;background:#f7f8fa;padding:14px}
+ul{margin-top:6px}
+.footer{background:#18212b;color:#fff;padding:20px;border-radius:12px}
+</style>
+</head>
+<body><div class="wrap">
+<header><h1>VISIONX — Phase 3: Productization & Validation</h1>
+<p>Reliability, measurable AI performance, stress testing, security/privacy, packaging, documentation and final release.</p></header>
+
+<section><h2>Phase Objective</h2><p>Convert a working prototype into a repeatable engineering product demonstration with measured performance, known limitations, recovery behavior and complete documentation.</p></section>
+
+<section><h2>Stage 1 — Hardware Productization</h2>
+<table><tr><th>Step</th><th>Implementation</th><th>Evidence</th></tr>
+<tr><td>1.1</td><td>Finalize physical assembly and enclosure.</td><td>Assembly drawing/photos.</td></tr>
+<tr><td>1.2</td><td>Label connectors and service points.</td><td>Service diagram.</td></tr>
+<tr><td>1.3</td><td>Verify power under maximum expected workload.</td><td>Voltage/current measurements.</td></tr>
+<tr><td>1.4</td><td>Test heat generation and long-run stability.</td><td>Thermal/long-run test.</td></tr>
+<tr><td>1.5</td><td>Check camera field of view and mounting repeatability.</td><td>Camera-placement guide.</td></tr>
+<tr><td>1.6</td><td>Verify SD card access and event evidence capacity.</td><td>Storage test.</td></tr>
+</table></section>
+
+<section><h2>Stage 2 — Software Reliability Engineering</h2>
+<ul><li>Process supervision/watchdog.</li><li>Automatic restart of recoverable components.</li><li>Structured error logs.</li><li>Graceful shutdown.</li><li>Database transaction handling.</li><li>Disk-space monitoring.</li><li>Recording file rotation.</li><li>Corrupt/incomplete file recovery strategy.</li><li>Configuration validation on startup.</li><li>Version/build information in dashboard.</li></ul>
+</section>
+
+<section><h2>Stage 3 — Failure Injection Tests</h2>
+<table><tr><th>Failure</th><th>Test</th><th>Expected Behavior</th></tr>
+<tr><td>Wi-Fi loss</td><td>Disable AP/network temporarily.</td><td>System detects loss, logs it and reconnects or enters safe state.</td></tr>
+<tr><td>Camera disconnect</td><td>Interrupt source.</td><td>Pipeline does not crash silently.</td></tr>
+<tr><td>SD unavailable</td><td>Remove/unmount where safe.</td><td>Critical failure is logged and alert path remains defined.</td></tr>
+<tr><td>Disk full</td><td>Simulate low storage.</td><td>Warning + configured retention/stop behavior.</td></tr>
+<tr><td>Database restart</td><td>Restart application.</td><td>Previous records remain consistent.</td></tr>
+<tr><td>AI overload</td><td>Increase resolution/number of objects.</td><td>FPS/latency degradation is measured and controlled.</td></tr>
+</table></section>
+
+<section><h2>Stage 4 — AI Validation</h2>
+<table><tr><th>Metric</th><th>Method</th></tr>
+<tr><td>Detection accuracy</td><td>Use labeled/controlled test frames and calculate suitable precision/recall metrics.</td></tr>
+<tr><td>Tracking quality</td><td>Measure ID stability, ID switches and track continuity on representative clips.</td></tr>
+<tr><td>Event precision</td><td>Count confirmed true events vs false alarms.</td></tr>
+<tr><td>Event recall</td><td>Count detected true events vs missed events.</td></tr>
+<tr><td>Latency</td><td>Timestamp capture, reception, inference, event confirmation and alert output.</td></tr>
+<tr><td>Throughput</td><td>Measure end-to-end FPS, not just model inference FPS.</td></tr>
+</table>
+<p><b>Important:</b> Do not invent accuracy percentages. Measure them experimentally and report the dataset/scenario and test conditions.</p>
+</section>
+
+<section><h2>Stage 5 — Domain Validation</h2>
+<h3>Classroom</h3><ul><li>Multiple-person tracking.</li><li>Entry/exit count accuracy.</li><li>Occupancy accuracy.</li><li>Zone transition accuracy.</li><li>Controlled abnormal-activity/fight scenarios.</li></ul>
+<h3>Traffic</h3><ul><li>Vehicle count/tracking.</li><li>Speed calibration accuracy.</li><li>Speed violation consistency.</li><li>Wrong-way detection.</li><li>Congestion threshold behavior.</li><li>Potential accident test cases.</li></ul>
+<h3>Patient Safety</h3><ul><li>Fall positive/negative scenarios.</li><li>Inactivity timing.</li><li>Restricted-area entry.</li><li>Wandering trajectory.</li><li>False alarm analysis for normal activities.</li></ul>
+</section>
+
+<section><h2>Stage 6 — Performance & Resource Profiling</h2>
+<ul><li>ESP32 CPU/memory/PSRAM usage where available.</li><li>ESP32 frame-buffer usage.</li><li>Wi-Fi bandwidth.</li><li>Network latency/jitter.</li><li>Laptop CPU/GPU/RAM usage.</li><li>AI inference time.</li><li>Tracking processing time.</li><li>Database write rate.</li><li>Recording disk throughput.</li><li>End-to-end FPS.</li></ul>
+<div class="doc"><b>Deliverable:</b> Performance Benchmark Report with hardware/software versions and test conditions.</div></section>
+
+<section><h2>Stage 7 — Advanced Scene Understanding</h2>
+<ol><li>Experiment with automatic detection/inference of doors, corridors, movement regions and useful zones.</li><li>Compare automatic output with manually configured ground truth.</li><li>Measure failure cases.</li><li>Add human confirmation/editing.</li><li>Keep manual configuration as fallback.</li></ol>
+<p>This feature must be presented as experimental unless testing demonstrates dependable performance.</p>
+</section>
+
+<section><h2>Stage 8 — Security, Privacy & Data Governance</h2>
+<ul><li>Restrict access to dashboard where appropriate.</li><li>Protect configuration/secrets.</li><li>Define retention period for continuous video.</li><li>Define retention for critical evidence.</li><li>Document who can access event data.</li><li>Document limitations and privacy considerations.</li><li>Avoid unnecessary personally identifiable information.</li></ul>
+</section>
+
+<section><h2>Stage 9 — Release Engineering</h2>
+<ol><li>Freeze source-code version.</li><li>Pin dependencies.</li><li>Create clean installation procedure.</li><li>Prepare configuration template.</li><li>Prepare startup script/service.</li><li>Prepare database initialization/migration.</li><li>Prepare backup/export procedure.</li><li>Tag release version.</li><li>Perform clean-machine installation test.</li></ol>
+</section>
+
+<section><h2>Stage 10 — Final Demonstration Qualification</h2>
+<table><tr><th>Demo</th><th>Required Result</th></tr>
+<tr><td>Hardware startup</td><td>ESP32 camera boots and connects reliably.</td></tr>
+<tr><td>Live stream</td><td>Frames reach laptop with visible performance metrics.</td></tr>
+<tr><td>Classroom</td><td>Tracking + occupancy/entry event demonstrated.</td></tr>
+<tr><td>Traffic</td><td>Vehicle tracking + calibrated violation scenario demonstrated.</td></tr>
+<tr><td>Patient safety</td><td>Controlled fall/restricted-zone scenario demonstrated.</td></tr>
+<tr><td>Critical event</td><td>Event → alert → evidence → database/dashboard chain demonstrated.</td></tr>
+<tr><td>Recording</td><td>Continuous video is recoverable from laptop storage.</td></tr>
+<tr><td>Report</td><td>Daily Excel report generated from database analytics.</td></tr>
+</table>
+<div class="gate"><b>Final Release Gate:</b> Every demo is repeatable, every major claim has test evidence, and known limitations are documented.</div></section>
+
+<section><h2>Final Documentation Package</h2>
+<ul><li>Final SRS</li><li>Architecture document</li><li>Hardware/BOM/wiring manual</li><li>Firmware documentation</li><li>Communication protocol</li><li>AI algorithm documentation</li><li>Domain specifications</li><li>Database schema</li><li>Dashboard/API documentation</li><li>Testing and validation report</li><li>Performance benchmark</li><li>Risk/limitations document</li><li>User manual</li><li>Installation manual</li><li>Troubleshooting manual</li><li>Maintenance guide</li><li>Final project report</li><li>Demo script</li></ul>
+</section>
+
+<section><h2>Product-Level Definition of Done</h2>
+<p>VISIONX is product-level when the complete chain is repeatable:</p>
+<p><code>ESP32-S3 Camera → Wi-Fi → Laptop Receiver → Common AI → Tracking → Scene/Domain Intelligence → Temporal Event Engine → Alerts + Evidence + Recording + Database → Dashboard → Excel</code></p>
+<p>and when the system has measured performance, failure handling, test evidence, documented limitations and reproducible installation.</p>
+</section>
+<div class="footer">Engineering rule: Never mark a feature “complete” because it worked once. Mark it complete only after implementation, test, recorded evidence, correction/retest where necessary, and documentation.</div>
+</div></body></html>
