@@ -1,0 +1,102 @@
+# ==============================
+# VISIONX - Edge AI Perception & Intelligence System
+# Git Ignore
+# ==============================
+
+# Python environments
+.venv/
+venv/
+env/
+
+# Python cache
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+
+# ==============================
+# ESP-IDF generated files
+# ==============================
+**/build/
+**/.cache/
+**/sdkconfig.old
+
+# ==============================
+# Editor / IDE temporary files
+# ==============================
+.vscode/
+.idea/
+.history/
+**/.history/
+
+# ==============================
+# OS temporary files
+# ==============================
+Thumbs.db
+.DS_Store
+desktop.ini
+
+# ==============================
+# Logs
+# ==============================
+*.log
+
+# ==============================
+# Video / continuous recordings
+# ==============================
+*.mp4
+*.avi
+*.mov
+*.mkv
+*.webm
+*.ts
+
+# ==============================
+# Captured image/frame data
+# ==============================
+*.jpg
+*.jpeg
+*.png
+*.bmp
+*.raw
+
+# ==============================
+# AI model / weights
+# ==============================
+*.pt
+*.pth
+*.onnx
+*.engine
+*.weights
+
+# Large datasets
+datasets/
+dataset/
+runs/
+weights/
+
+# ==============================
+# Databases
+# ==============================
+*.db
+*.sqlite
+*.sqlite3
+
+# ==============================
+# Generated reports
+# ==============================
+*.xlsx
+*.xls
+*.csv
+
+# ==============================
+# Temporary archives
+# ==============================
+*.zip
+*.7z
+*.rar
+*.tar
+*.gz
+*.kicad_prl
+# ESP-IDF managed dependencies
+**/managed_components/
