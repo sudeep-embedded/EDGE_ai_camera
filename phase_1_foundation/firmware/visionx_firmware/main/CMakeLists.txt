@@ -1,11 +1,11 @@
 idf_component_register(
-    SRCS
-        "visionx_firmware.c"
-        "visionx_camera.c"
-
-    INCLUDE_DIRS
-        "."
-
-    REQUIRES
+    SRCS "main.c"
+    INCLUDE_DIRS "."
+    PRIV_REQUIRES
         esp32-camera
+        esp_wifi
+        esp_event
+        esp_netif
+        nvs_flash
+        lwip
 )
