@@ -1,0 +1,13 @@
+outside the venu :
+cd D:\project\ESP-IDF
+.\export.ps1
+
+cd D:\final_year_projects\EDGE_ai_camera\phase_1_foundation\firmware\visionx_firmware
+idf.py build
+idf.py flash monitor
+
+inside the venu : 
+cd D:\final_year_projects\EDGE_ai_camera
+.\.venv\Scripts\Activate.ps1
+cd .\phase_1_foundation\communication
+python wireless_receiver.py

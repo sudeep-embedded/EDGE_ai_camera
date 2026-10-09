@@ -2,6 +2,7 @@
 #include <string.h>
 #include <stdbool.h>
 #include <stdint.h>
+#include <errno.h>
 #include <sys/socket.h>
 #include <arpa/inet.h>
 
@@ -14,54 +15,43 @@
 #include "esp_wifi.h"
 #include "esp_event.h"
 #include "esp_netif.h"
+#include "esp_rom_sys.h"
+#include "esp_timer.h"
 #include "nvs_flash.h"
 
 #define TAG "OV5640_WIFI"
 
-/* =========================================================
-   WIFI SETTINGS
-   ========================================================= */
-
+/* Wi-Fi */
 #define WIFI_SSID       "2004"
 #define WIFI_PASSWORD   "1234567890"
 
-#define RECEIVER_IP     "10.59.216.188"
-#define RECEIVER_PORT   5000
+/* Laptop UDP receiver */
+#define RECEIVER_IP     "10.127.246.188"
+#define RECEIVER_PORT   5500
 
-/* =========================================================
-   CAMERA SETTINGS
-   ========================================================= */
-
+/* Camera quality: retain the proven setting */
 #define JPEG_QUALITY    6
 
-/* =========================================================
-   UDP SETTINGS
-   ========================================================= */
-
+/* UDP protocol: packet size includes the 26-byte header */
 #define UDP_PACKET_SIZE     1400
 #define UDP_HEADER_SIZE     26
 #define UDP_CHUNK_DATA      (UDP_PACKET_SIZE - UDP_HEADER_SIZE)
 #define MAX_JPEG_SIZE       (256 * 1024)
 
-/* =========================================================
-   WIFI EVENT
-   ========================================================= */
+/* Bounded handling of transient lwIP send-buffer pressure */
+#define UDP_ENOMEM_RETRIES  2
+#define UDP_RETRY_DELAY_US  1000
+#define UDP_CHUNK_GAP_US    200
 
-#define WIFI_CONNECTED_BIT  BIT0
+#define WIFI_CONNECTED_BIT BIT0
 
 static EventGroupHandle_t wifi_event_group;
-
-/* =========================================================
-   UDP SOCKET
-   ========================================================= */
-
 static int udp_socket_fd = -1;
-
 static struct sockaddr_in receiver_addr;
 
-/* =========================================================
-   WIFI EVENT HANDLER
-   ========================================================= */
+/* ---------------------------------------------------------
+   Wi-Fi event handler
+   --------------------------------------------------------- */
 
 static void wifi_event_handler(
     void *arg,
@@ -69,29 +59,26 @@ static void wifi_event_handler(
     int32_t event_id,
     void *event_data)
 {
+    (void)arg;
+
     if (event_base == WIFI_EVENT &&
         event_id == WIFI_EVENT_STA_START) {
 
-        ESP_LOGI(TAG, "Wi-Fi started");
-
         esp_wifi_connect();
-    }
 
-    else if (event_base == WIFI_EVENT &&
-             event_id == WIFI_EVENT_STA_DISCONNECTED) {
-
-        ESP_LOGW(TAG, "Wi-Fi disconnected");
+    } else if (event_base == WIFI_EVENT &&
+               event_id == WIFI_EVENT_STA_DISCONNECTED) {
 
         xEventGroupClearBits(
             wifi_event_group,
             WIFI_CONNECTED_BIT
         );
 
+        ESP_LOGW(TAG, "Wi-Fi disconnected; reconnecting");
         esp_wifi_connect();
-    }
 
-    else if (event_base == IP_EVENT &&
-             event_id == IP_EVENT_STA_GOT_IP) {
+    } else if (event_base == IP_EVENT &&
+               event_id == IP_EVENT_STA_GOT_IP) {
 
         ip_event_got_ip_t *event =
             (ip_event_got_ip_t *)event_data;
@@ -109,22 +96,17 @@ static void wifi_event_handler(
     }
 }
 
-/* =========================================================
-   WIFI INITIALIZATION
-   ========================================================= */
+/* ---------------------------------------------------------
+   Wi-Fi initialization
+   --------------------------------------------------------- */
 
 static esp_err_t wifi_init(void)
 {
     wifi_event_group = xEventGroupCreate();
 
     if (wifi_event_group == NULL) {
-
-        ESP_LOGE(
-            TAG,
-            "Failed to create Wi-Fi event group"
-        );
-
-        return ESP_FAIL;
+        ESP_LOGE(TAG, "Cannot create Wi-Fi event group");
+        return ESP_ERR_NO_MEM;
     }
 
     esp_err_t err = nvs_flash_init();
@@ -132,69 +114,63 @@ static esp_err_t wifi_init(void)
     if (err == ESP_ERR_NVS_NO_FREE_PAGES ||
         err == ESP_ERR_NVS_NEW_VERSION_FOUND) {
 
-        ESP_ERROR_CHECK(
-            nvs_flash_erase()
-        );
+        err = nvs_flash_erase();
+        if (err != ESP_OK) {
+            return err;
+        }
 
         err = nvs_flash_init();
     }
 
     if (err != ESP_OK) {
-
-        ESP_LOGE(
-            TAG,
-            "NVS init failed: 0x%x",
-            err
-        );
-
+        ESP_LOGE(TAG, "NVS initialization failed: %s",
+                 esp_err_to_name(err));
         return err;
     }
 
-    ESP_ERROR_CHECK(
-        esp_netif_init()
+    err = esp_netif_init();
+    if (err != ESP_OK) {
+        return err;
+    }
+
+    err = esp_event_loop_create_default();
+    if (err != ESP_OK) {
+        return err;
+    }
+
+    if (esp_netif_create_default_wifi_sta() == NULL) {
+        ESP_LOGE(TAG, "Cannot create Wi-Fi station interface");
+        return ESP_FAIL;
+    }
+
+    wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
+
+    err = esp_wifi_init(&cfg);
+    if (err != ESP_OK) {
+        return err;
+    }
+
+    err = esp_event_handler_register(
+        WIFI_EVENT,
+        ESP_EVENT_ANY_ID,
+        wifi_event_handler,
+        NULL
     );
+    if (err != ESP_OK) {
+        return err;
+    }
 
-    ESP_ERROR_CHECK(
-        esp_event_loop_create_default()
+    err = esp_event_handler_register(
+        IP_EVENT,
+        IP_EVENT_STA_GOT_IP,
+        wifi_event_handler,
+        NULL
     );
+    if (err != ESP_OK) {
+        return err;
+    }
 
-    esp_netif_create_default_wifi_sta();
-
-    wifi_init_config_t cfg =
-        WIFI_INIT_CONFIG_DEFAULT();
-
-    ESP_ERROR_CHECK(
-        esp_wifi_init(&cfg)
-    );
-
-    ESP_ERROR_CHECK(
-        esp_event_handler_register(
-            WIFI_EVENT,
-            ESP_EVENT_ANY_ID,
-            &wifi_event_handler,
-            NULL
-        )
-    );
-
-    ESP_ERROR_CHECK(
-        esp_event_handler_register(
-            IP_EVENT,
-            IP_EVENT_STA_GOT_IP,
-            &wifi_event_handler,
-            NULL
-        )
-    );
-
-    wifi_config_t wifi_config = {
-        .sta = {
-            .threshold.authmode = WIFI_AUTH_WPA2_PSK,
-
-            .pmf_cfg = {
-                .capable = true,
-                .required = false
-            }
-        }
-    };
+    wifi_config_t wifi_config = {0};
 
     strncpy(
         (char *)wifi_config.sta.ssid,
@@ -208,65 +184,53 @@ static esp_err_t wifi_init(void)
         sizeof(wifi_config.sta.password) - 1
     );
 
-    ESP_ERROR_CHECK(
-        esp_wifi_set_mode(WIFI_MODE_STA)
+    wifi_config.sta.threshold.authmode = WIFI_AUTH_WPA2_PSK;
+    wifi_config.sta.pmf_cfg.capable = true;
+    wifi_config.sta.pmf_cfg.required = false;
+
+    err = esp_wifi_set_mode(WIFI_MODE_STA);
+    if (err != ESP_OK) {
+        return err;
+    }
+
+    err = esp_wifi_set_config(WIFI_IF_STA, &wifi_config);
+    if (err != ESP_OK) {
+        return err;
+    }
+
+    /* Disable power saving for lower streaming latency. */
+    err = esp_wifi_set_ps(WIFI_PS_NONE);
+    if (err != ESP_OK) {
+        return err;
+    }
+
+    err = esp_wifi_start();
+    if (err != ESP_OK) {
+        return err;
+    }
+
+    ESP_LOGI(TAG, "Connecting to Wi-Fi: %s", WIFI_SSID);
+
+    EventBits_t bits = xEventGroupWaitBits(
+        wifi_event_group,
+        WIFI_CONNECTED_BIT,
+        pdFALSE,
+        pdTRUE,
+        pdMS_TO_TICKS(20000)
     );
 
-    ESP_ERROR_CHECK(
-        esp_wifi_set_config(
-            WIFI_IF_STA,
-            &wifi_config
-        )
-    );
-
-    /*
-     * Disable Wi-Fi power saving
-     * for lower video latency.
-     */
-    ESP_ERROR_CHECK(
-        esp_wifi_set_ps(WIFI_PS_NONE)
-    );
-
-    ESP_ERROR_CHECK(
-        esp_wifi_start()
-    );
-
-    ESP_LOGI(
-        TAG,
-        "Connecting to Wi-Fi: %s",
-        WIFI_SSID
-    );
-
-    EventBits_t bits =
-        xEventGroupWaitBits(
-            wifi_event_group,
-            WIFI_CONNECTED_BIT,
-            pdFALSE,
-            pdTRUE,
-            pdMS_TO_TICKS(20000)
-        );
-
-    if (!(bits & WIFI_CONNECTED_BIT)) {
-
-        ESP_LOGE(
-            TAG,
-            "Wi-Fi connection timeout"
-        );
-
+    if ((bits & WIFI_CONNECTED_BIT) == 0) {
+        ESP_LOGE(TAG, "Wi-Fi connection timeout");
         return ESP_ERR_TIMEOUT;
     }
 
-    ESP_LOGI(
-        TAG,
-        "Wi-Fi connected"
-    );
-
+    ESP_LOGI(TAG, "Wi-Fi connected");
     return ESP_OK;
 }
 
-/* =========================================================
-   UDP INITIALIZATION
-   ========================================================= */
+/* ---------------------------------------------------------
+   UDP initialization
+   --------------------------------------------------------- */
 
 static esp_err_t udp_init(void)
 {
@@ -277,29 +241,24 @@ static esp_err_t udp_init(void)
     );
 
     if (udp_socket_fd < 0) {
-
-        ESP_LOGE(
-            TAG,
-            "Unable to create UDP socket"
-        );
-
+        ESP_LOGE(TAG, "UDP socket creation failed: errno=%d", errno);
         return ESP_FAIL;
     }
 
-    memset(
-        &receiver_addr,
-        0,
-        sizeof(receiver_addr)
-    );
+    memset(&receiver_addr, 0, sizeof(receiver_addr));
 
-    receiver_addr.sin_family =
-        AF_INET;
+    receiver_addr.sin_family = AF_INET;
+    receiver_addr.sin_port = htons(RECEIVER_PORT);
 
-    receiver_addr.sin_port =
-        htons(RECEIVER_PORT);
+    if (inet_pton(
+            AF_INET,
+            RECEIVER_IP,
+            &receiver_addr.sin_addr
+        ) != 1) {
 
-    receiver_addr.sin_addr.s_addr =
-        inet_addr(RECEIVER_IP);
+        ESP_LOGE(TAG, "Invalid receiver IP: %s", RECEIVER_IP);
+        return ESP_FAIL;
+    }
 
     ESP_LOGI(
         TAG,
@@ -311,14 +270,13 @@ static esp_err_t udp_init(void)
     return ESP_OK;
 }
 
-/* =========================================================
-   CAMERA INITIALIZATION
-   ========================================================= */
+/* ---------------------------------------------------------
+   Camera initialization
+   --------------------------------------------------------- */
 
 static esp_err_t camera_init(void)
 {
     camera_config_t config = {
-
         .pin_pwdn       = 15,
         .pin_reset      = 16,
         .pin_xclk       = 9,
@@ -341,10 +299,6 @@ static esp_err_t camera_init(void)
 
         .xclk_freq_hz   = 20000000,
 
-        /*
-         * PROVEN CAMERA BASELINE
-         */
-
         .pixel_format   = PIXFORMAT_JPEG,
         .frame_size     = FRAMESIZE_VGA,
         .jpeg_quality   = JPEG_QUALITY,
@@ -354,169 +308,59 @@ static esp_err_t camera_init(void)
         .fb_location    = CAMERA_FB_IN_PSRAM
     };
 
-    esp_err_t err =
-        esp_camera_init(&config);
+    esp_err_t err = esp_camera_init(&config);
 
     if (err != ESP_OK) {
-
-        ESP_LOGE(
-            TAG,
-            "Camera init failed: 0x%x",
-            err
-        );
-
+        ESP_LOGE(TAG, "Camera init failed: 0x%x", err);
         return err;
     }
 
-    sensor_t *s =
-        esp_camera_sensor_get();
+    sensor_t *s = esp_camera_sensor_get();
 
     if (s == NULL) {
-
-        ESP_LOGE(
-            TAG,
-            "OV5640 sensor not found"
-        );
-
+        ESP_LOGE(TAG, "OV5640 sensor not found");
         return ESP_FAIL;
     }
 
-    ESP_LOGI(
-        TAG,
-        "OV5640 detected"
-    );
+    ESP_LOGI(TAG, "OV5640 detected");
 
-    /* =====================================================
-       AUTOMATIC EXPOSURE / GAIN / WHITE BALANCE
-       ===================================================== */
-
+    /* Preserve the existing sensor settings. */
     s->set_exposure_ctrl(s, 1);
-
     s->set_gain_ctrl(s, 1);
-
     s->set_whitebal(s, 1);
-
     s->set_awb_gain(s, 1);
-
     s->set_ae_level(s, 2);
-
     s->set_agc_gain(s, 0);
-
-    s->set_gainceiling(
-        s,
-        GAINCEILING_16X
-    );
-
-    /* =====================================================
-       IMAGE QUALITY
-       ===================================================== */
+    s->set_gainceiling(s, GAINCEILING_16X);
 
     s->set_brightness(s, 2);
-
     s->set_contrast(s, 0);
-
     s->set_saturation(s, 1);
 
-    /* =====================================================
-       SENSOR CORRECTIONS
-       ===================================================== */
-
     s->set_lenc(s, 1);
-
     s->set_bpc(s, 1);
-
     s->set_wpc(s, 1);
-
     s->set_raw_gma(s, 1);
-
     s->set_dcw(s, 1);
-
     s->set_special_effect(s, 0);
-
     s->set_hmirror(s, 0);
-
     s->set_vflip(s, 0);
 
-    /*
-     * Allow automatic exposure,
-     * gain and white balance to stabilize.
-     */
-    vTaskDelay(
-        pdMS_TO_TICKS(3000)
-    );
+    /* Allow auto exposure and white balance to stabilize. */
+    vTaskDelay(pdMS_TO_TICKS(3000));
 
     ESP_LOGI(
         TAG,
-        "========================================"
-    );
-
-    ESP_LOGI(
-        TAG,
-        "OV5640 WIRELESS CAMERA"
-    );
-
-    ESP_LOGI(
-        TAG,
-        "Resolution    : 640x480"
-    );
-
-    ESP_LOGI(
-        TAG,
-        "Native JPEG   : ON"
-    );
-
-    ESP_LOGI(
-        TAG,
-        "JPEG quality  : %d",
+        "Camera ready: VGA 640x480, JPEG quality %d",
         JPEG_QUALITY
-    );
-
-    ESP_LOGI(
-        TAG,
-        "Auto exposure : ON"
-    );
-
-    ESP_LOGI(
-        TAG,
-        "Auto gain     : ON"
-    );
-
-    ESP_LOGI(
-        TAG,
-        "Auto WB       : ON"
-    );
-
-    ESP_LOGI(
-        TAG,
-        "Brightness    : +2"
-    );
-
-    ESP_LOGI(
-        TAG,
-        "Contrast      : 0"
-    );
-
-    ESP_LOGI(
-        TAG,
-        "Saturation    : +1"
-    );
-
-    ESP_LOGI(
-        TAG,
-        "Gain ceiling  : 16X"
-    );
-
-    ESP_LOGI(
-        TAG,
-        "========================================"
     );
 
     return ESP_OK;
 }
 
-/* =========================================================
-   SEND ONE UDP CHUNK
-   ========================================================= */
+/* ---------------------------------------------------------
+   Send one UDP packet
+   --------------------------------------------------------- */
 
 static bool send_udp_chunk(
     uint32_t sequence,
@@ -528,184 +372,139 @@ static bool send_udp_chunk(
     const uint8_t *data,
     uint16_t data_length)
 {
-    /*
-     * UDP HEADER = 26 BYTES
-     *
-     * 0-7     MAGIC
-     * 8-11    sequence
-     * 12-13   width
-     * 14-15   height
-     * 16-17   chunk index
-     * 18-19   total chunks
-     * 20-23   JPEG length
-     * 24-25   chunk length
-     */
-
     uint8_t packet[UDP_PACKET_SIZE];
 
-    memcpy(
-        packet,
-        "OV56UDP1",
-        8
-    );
+    /* Header magic */
+    memcpy(packet, "OV56UDP1", 8);
 
-    /* Sequence */
-    packet[8] =
-        (sequence >> 0) & 0xFF;
+    /* Sequence number, little-endian */
+    packet[8]  = (uint8_t)(sequence);
+    packet[9]  = (uint8_t)(sequence >> 8);
+    packet[10] = (uint8_t)(sequence >> 16);
+    packet[11] = (uint8_t)(sequence >> 24);
 
-    packet[9] =
-        (sequence >> 8) & 0xFF;
+    /* Image dimensions */
+    packet[12] = (uint8_t)(width);
+    packet[13] = (uint8_t)(width >> 8);
+    packet[14] = (uint8_t)(height);
+    packet[15] = (uint8_t)(height >> 8);
 
-    packet[10] =
-        (sequence >> 16) & 0xFF;
+    /* Chunk index and total chunks */
+    packet[16] = (uint8_t)(chunk_index);
+    packet[17] = (uint8_t)(chunk_index >> 8);
+    packet[18] = (uint8_t)(total_chunks);
+    packet[19] = (uint8_t)(total_chunks >> 8);
 
-    packet[11] =
-        (sequence >> 24) & 0xFF;
+    /* Total JPEG size */
+    packet[20] = (uint8_t)(jpeg_length);
+    packet[21] = (uint8_t)(jpeg_length >> 8);
+    packet[22] = (uint8_t)(jpeg_length >> 16);
+    packet[23] = (uint8_t)(jpeg_length >> 24);
 
-    /* Width */
-    packet[12] =
-        width & 0xFF;
+    /* This chunk's payload length */
+    packet[24] = (uint8_t)(data_length);
+    packet[25] = (uint8_t)(data_length >> 8);
 
-    packet[13] =
-        (width >> 8) & 0xFF;
-
-    /* Height */
-    packet[14] =
-        height & 0xFF;
-
-    packet[15] =
-        (height >> 8) & 0xFF;
-
-    /* Chunk index */
-    packet[16] =
-        chunk_index & 0xFF;
-
-    packet[17] =
-        (chunk_index >> 8) & 0xFF;
-
-    /* Total chunks */
-    packet[18] =
-        total_chunks & 0xFF;
-
-    packet[19] =
-        (total_chunks >> 8) & 0xFF;
-
-    /* Complete JPEG length */
-    packet[20] =
-        (jpeg_length >> 0) & 0xFF;
-
-    packet[21] =
-        (jpeg_length >> 8) & 0xFF;
-
-    packet[22] =
-        (jpeg_length >> 16) & 0xFF;
-
-    packet[23] =
-        (jpeg_length >> 24) & 0xFF;
-
-    /* Current chunk length */
-    packet[24] =
-        data_length & 0xFF;
-
-    packet[25] =
-        (data_length >> 8) & 0xFF;
-
-    /* JPEG payload */
-    memcpy(
-        packet + UDP_HEADER_SIZE,
-        data,
-        data_length
-    );
-
-    int packet_length =
-        UDP_HEADER_SIZE + data_length;
-
-    int sent = sendto(
-        udp_socket_fd,
-        packet,
-        packet_length,
-        0,
-        (struct sockaddr *)&receiver_addr,
-        sizeof(receiver_addr)
-    );
-
-    if (sent != packet_length) {
+    if ((size_t)data_length + UDP_HEADER_SIZE > sizeof(packet)) {
         return false;
     }
 
-    return true;
+    memcpy(packet + UDP_HEADER_SIZE, data, data_length);
+
+    const int packet_length = UDP_HEADER_SIZE + data_length;
+    int attempts = 0;
+
+    while (true) {
+        int sent = sendto(
+            udp_socket_fd,
+            packet,
+            packet_length,
+            0,
+            (struct sockaddr *)&receiver_addr,
+            sizeof(receiver_addr)
+        );
+
+        if (sent == packet_length) {
+            /*
+             * A small inter-packet gap reduces burst pressure on lwIP.
+             * Measure performance before changing this value.
+             */
+            esp_rom_delay_us(UDP_CHUNK_GAP_US);
+            return true;
+        }
+
+        int send_errno = errno;
+
+        /*
+         * Retry only temporary memory-pressure errors.
+         * The retry count is bounded so one frame cannot stall forever.
+         */
+        if (send_errno != ENOMEM ||
+            attempts >= UDP_ENOMEM_RETRIES) {
+
+            ESP_LOGW(
+                TAG,
+                "UDP send failed: errno=%d, packet=%d bytes",
+                send_errno,
+                packet_length
+            );
+
+            return false;
+        }
+
+        attempts++;
+        esp_rom_delay_us(UDP_RETRY_DELAY_US);
+    }
 }
 
-/* =========================================================
-   SEND COMPLETE JPEG FRAME
-   ========================================================= */
+/* ---------------------------------------------------------
+   Send one complete JPEG frame
+   --------------------------------------------------------- */
 
 static bool send_frame(
     camera_fb_t *fb,
     uint32_t sequence)
 {
-    if (fb == NULL) {
-        return false;
-    }
-
-    if (fb->len == 0 ||
+    if (fb == NULL ||
+        fb->format != PIXFORMAT_JPEG ||
+        fb->len < 4 ||
         fb->len > MAX_JPEG_SIZE) {
 
-        ESP_LOGW(
-            TAG,
-            "Invalid JPEG size: %lu",
-            (unsigned long)fb->len
-        );
-
         return false;
     }
 
-    /*
-     * Use uint32_t here so the range check
-     * is valid with ESP-IDF -Werror.
-     */
-    uint32_t total_chunks =
-        (fb->len + UDP_CHUNK_DATA - 1) /
+    const uint32_t total_chunks =
+        ((uint32_t)fb->len + UDP_CHUNK_DATA - 1) /
         UDP_CHUNK_DATA;
 
-    if (total_chunks == 0 ||
-        total_chunks > 65535) {
-
+    if (total_chunks == 0 || total_chunks > UINT16_MAX) {
         return false;
     }
 
     size_t offset = 0;
 
-    for (uint32_t chunk = 0;
-         chunk < total_chunks;
-         chunk++) {
+    for (uint32_t chunk = 0; chunk < total_chunks; chunk++) {
+        size_t remaining = fb->len - offset;
+        size_t chunk_size = remaining;
 
-        size_t remaining =
-            fb->len - offset;
-
-        size_t chunk_size =
-            remaining;
-
-        if (chunk_size >
-            UDP_CHUNK_DATA) {
-
-            chunk_size =
-                UDP_CHUNK_DATA;
+        if (chunk_size > UDP_CHUNK_DATA) {
+            chunk_size = UDP_CHUNK_DATA;
         }
 
-        bool ok =
-            send_udp_chunk(
+        if (!send_udp_chunk(
                 sequence,
                 fb->width,
                 fb->height,
                 (uint16_t)chunk,
                 (uint16_t)total_chunks,
-                fb->len,
+                (uint32_t)fb->len,
                 fb->buf + offset,
-                (uint16_t)chunk_size
-            );
+                (uint16_t)chunk_size)) {
 
-        if (!ok) {
+            /*
+             * Do not send the remaining chunks of this frame.
+             * The receiver will discard the incomplete frame.
+             */
             return false;
         }
 
@@ -715,139 +514,91 @@ static bool send_frame(
     return true;
 }
 
-/* =========================================================
-   MAIN
-   ========================================================= */
+/* ---------------------------------------------------------
+   Main application
+   --------------------------------------------------------- */
 
 void app_main(void)
 {
-    ESP_LOGI(
-        TAG,
-        "Starting ESP32-S3 OV5640 wireless camera"
-    );
-
-    /* =====================================================
-       CAMERA FIRST
-       ===================================================== */
+    ESP_LOGI(TAG, "Starting ESP32-S3 OV5640 wireless camera");
 
     if (camera_init() != ESP_OK) {
-
-        ESP_LOGE(
-            TAG,
-            "Camera initialization failed"
-        );
-
-        while (1) {
-
-            vTaskDelay(
-                pdMS_TO_TICKS(1000)
-            );
-        }
+        ESP_LOGE(TAG, "Camera initialization failed");
+        return;
     }
-
-    /* =====================================================
-       WIFI
-       ===================================================== */
 
     if (wifi_init() != ESP_OK) {
-
-        ESP_LOGE(
-            TAG,
-            "Wi-Fi initialization failed"
-        );
-
-        while (1) {
-
-            vTaskDelay(
-                pdMS_TO_TICKS(1000)
-            );
-        }
+        ESP_LOGE(TAG, "Wi-Fi initialization failed");
+        return;
     }
-
-    /* =====================================================
-       UDP
-       ===================================================== */
 
     if (udp_init() != ESP_OK) {
-
-        ESP_LOGE(
-            TAG,
-            "UDP initialization failed"
-        );
-
-        while (1) {
-
-            vTaskDelay(
-                pdMS_TO_TICKS(1000)
-            );
-        }
+        ESP_LOGE(TAG, "UDP initialization failed");
+        return;
     }
 
-    ESP_LOGI(
-        TAG,
-        "========================================"
-    );
-
-    ESP_LOGI(
-        TAG,
-        "WIRELESS CAMERA READY"
-    );
-
-    ESP_LOGI(
-        TAG,
-        "Receiver: %s:%d",
-        RECEIVER_IP,
-        RECEIVER_PORT
-    );
-
-    ESP_LOGI(
-        TAG,
-        "========================================"
-    );
+    ESP_LOGI(TAG, "========================================");
+    ESP_LOGI(TAG, "WIRELESS CAMERA READY");
+    ESP_LOGI(TAG, "Receiver: %s:%d", RECEIVER_IP, RECEIVER_PORT);
+    ESP_LOGI(TAG, "========================================");
 
     uint32_t sequence = 0;
+    uint32_t frames_ok = 0;
+    uint32_t frames_failed = 0;
+    uint32_t camera_failures = 0;
+    uint64_t bytes_sent_frames = 0;
+    int64_t stats_start_us = esp_timer_get_time();
 
-    /* =====================================================
-       LIVE CAMERA LOOP
-       ===================================================== */
-
-    while (1) {
-
-        camera_fb_t *fb =
-            esp_camera_fb_get();
+    while (true) {
+        camera_fb_t *fb = esp_camera_fb_get();
 
         if (fb == NULL) {
-
-            ESP_LOGW(
-                TAG,
-                "Camera frame capture failed"
-            );
-
-            vTaskDelay(
-                pdMS_TO_TICKS(10)
-            );
-
+            camera_failures++;
+            vTaskDelay(pdMS_TO_TICKS(5));
             continue;
         }
 
-        if (fb->format == PIXFORMAT_JPEG &&
-            fb->len > 100) {
+        /*
+         * Advance the sequence for every attempted JPEG frame,
+         * including frames that fail partway through transmission.
+         */
+        const uint32_t this_sequence = sequence++;
 
-            if (send_frame(
-                    fb,
-                    sequence)) {
-
-                sequence++;
+        if (fb->format == PIXFORMAT_JPEG && fb->len > 100) {
+            if (send_frame(fb, this_sequence)) {
+                frames_ok++;
+                bytes_sent_frames += fb->len;
+            } else {
+                frames_failed++;
             }
+        } else {
+            frames_failed++;
         }
 
         esp_camera_fb_return(fb);
 
-        /*
-         * Low-latency streaming.
-         */
-        vTaskDelay(
-            pdMS_TO_TICKS(1)
-        );
+        const int64_t now_us = esp_timer_get_time();
+
+        if (now_us - stats_start_us >= 1000000) {
+            const uint32_t avg_jpeg_kb =
+                frames_ok
+                    ? (uint32_t)(bytes_sent_frames / frames_ok / 1024)
+                    : 0;
+
+            ESP_LOGI(
+                TAG,
+                "1s stats | sent=%lu failed=%lu camera_fail=%lu avg_jpeg=%lu KB",
+                (unsigned long)frames_ok,
+                (unsigned long)frames_failed,
+                (unsigned long)camera_failures,
+                (unsigned long)avg_jpeg_kb
+            );
+
+            frames_ok = 0;
+            frames_failed = 0;
+            camera_failures = 0;
+            bytes_sent_frames = 0;
+            stats_start_us = now_us;
+        }
     }
 }
