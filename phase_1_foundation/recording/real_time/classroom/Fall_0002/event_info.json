@@ -1,0 +1,17 @@
+{
+  "event_id": 2,
+  "event_type": "fall",
+  "mode": "real_time",
+  "domain": "classroom",
+  "domain_name": "Classroom Intelligence",
+  "source": "live",
+  "time_seconds": 77.954,
+  "frame_index": 1099,
+  "track_id": 37,
+  "detected_at": "2026-10-21T11:43:14+05:30",
+  "event_folder": "D:\\final_year_projects\\EDGE_ai_camera\\phase_1_foundation\\recording\\real_time\\classroom\\Fall_0002",
+  "evidence_image": "D:\\final_year_projects\\EDGE_ai_camera\\phase_1_foundation\\recording\\real_time\\classroom\\Fall_0002\\evidence.jpg",
+  "metadata_json": "D:\\final_year_projects\\EDGE_ai_camera\\phase_1_foundation\\recording\\real_time\\classroom\\Fall_0002\\event_info.json",
+  "storage_status": "SAVED",
+  "note": "Prototype visual fall-detection heuristic. Validate under representative conditions. An individual event video clip is not generated yet."
+}
